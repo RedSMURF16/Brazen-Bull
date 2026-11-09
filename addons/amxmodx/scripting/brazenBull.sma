@@ -11,6 +11,8 @@
 *   Commands:
 *       say /bull [name | all]          "Opens the Bull menu or executes the specified player(s)."
 *       say_team /bull [name | all]     "Opens the Bull menu or executes the specified player(s)."
+*       say /bull_vote                  "Opens the player voting menu."
+*       say_team /bull_vote             "Opens the player voting menu."
 *       brazenbull_reload               "Reloads the configuration file."
 *
 *	Changelog:
@@ -53,11 +55,13 @@
 #define BULL_GHOST_ALPHA            120
 #define BULL_ROTATION_STEP          22.5
 #define ADMIN_ACCESS                ADMIN_RCON
+#define ADMIN_ACCESS_VOTE           ADMIN_USER
 #define PDATA_NEXT_ATTACK           83
 #define XO_CBASEPLAYER              5
 #define XO_CBASEPLAYERWEAPON        4
 #define BULL_KEY                    444404
 #define BULL_LOCKED_KEY             444405
+#define BULL_VOTE_KEY               444406
 #define BULL_ARRAY_ITEM             pev_iuser1
 #define SEQ                         60
 #define VIEW_FORWARD_OFFSET         128.0
@@ -106,7 +110,8 @@ enum
     FLAG_GHOST              = (1 << 1),
     FLAG_GROUND             = (1 << 2),
     FLAG_ACTIVE             = (1 << 3),
-    FLAG_USED               = (1 << 4)
+    FLAG_USED               = (1 << 4),
+    FLAG_CLOSED             = (1 << 5)
 }
 
 enum
@@ -149,10 +154,17 @@ enum _:MAIN_SETTINGS
     Float:SETTING_DEFAULT_DAMAGE_INTERVAL[2],
     SETTING_DEFAULT_DAMAGETYPE,
     Float:SETTING_DEFAULT_SCREAM_INTERVAL[2],
+    SETTING_DEFAULT_LIGHT_SCALE,
+    SETTING_DEFAULT_LIGHT_COLOR[3],
+    SETTING_DEFAULT_LIGHT_LIFE,
     bool:SETTING_PLAY_SOUND_ON_DEATH,
     bool:SETTING_WRITE_MESSAGE_ON_DEATH,
     bool:SETTING_KILL_ALL_EXCLUDE_CALLER,
     bool:SETTING_SET_CAMERA_ON_VICTIM,
+    bool:SETTING_VOTE_ENABLED,
+    Float:SETTING_VOTE_COOLDOWN,
+    Float:SETTING_VOTE_DURATION,
+    Float:SETTING_VOTE_PERCENTAGE,
 
     Float:SETTING_HUD_X,
     Float:SETTING_HUD_Y,
@@ -179,7 +191,6 @@ enum _:BULL
     BULL_VIEW,
     BULL_FIRE,
     BULL_NAME[MAX_VALUE_LENGTH],
-    BULL_SPRITE_FIRE[MAX_RESOURCE_PATH_LENGTH],
     Float:BULL_FRAMERATE,
     Float:BULL_COOLDOWN[2],
     Float:BULL_FIRE_FRAMERATE,
@@ -192,6 +203,7 @@ enum _:BULL
 
     Float:BULL_ORIGIN[3],
     Float:BULL_ANGLES[3],
+    Float:BULL_ORIGIN_FIRE[3],
     Float:BULL_MINS[3],
     Float:BULL_MAXS[3],
 
@@ -243,7 +255,9 @@ enum
     MENU_REMOVE,
     MENU_SHOW,
     MENU_STATUS,
-    MENU_ROTATE
+    MENU_ROTATE,
+    MENU_VOTE,
+    MENU_VOTE_CONFIRM
 }
 
 enum
@@ -319,7 +333,9 @@ new g_szMenuHandler[][MAX_VALUE_LENGTH] =
     "menuHandlerRemove",
     "menuHandlerShow",
     "menuHandlerStatus",
-    "menuHandlerRotate"
+    "menuHandlerRotate",
+    "menuHandlerVote",
+    "menuHandlerVoteConfirm"
 }
 
 new g_szCN[] = "brazenbull"
@@ -331,6 +347,7 @@ new Array:g_aBull,
     bool:g_bFileWasRead, g_iActivePlayers,
     g_iFwdEmitSound, HamHook:g_iFwdUse, HamHook:g_iFwdObjectCaps, HamHook:g_iFwdPreThink, HamHook:g_iFwdPostThink,
     g_iBull, g_iBullConfig, g_iBarTime, Float:g_iHudCurrentY, g_iHudObject_1, g_iHudObject_2, g_iHudObject_3, g_iHudSlot,
+    g_szVoteTarget[MAX_VALUE_LENGTH], g_iVoteTargetUserid, g_iVoteNo, g_iVoteYes, Float:g_fVoteNext,
     g_iMaxPlayers
 
 new Float:g_fFireOffset[] = { 0.0, 0.0, 20.0 }
@@ -344,6 +361,8 @@ public plugin_init()
 
     register_clcmd("say /bull",             "cmdMenu", ADMIN_ACCESS, "-- Opens the Bull menu.")
     register_clcmd("say_team /bull",        "cmdMenu", ADMIN_ACCESS, "-- Opens the Bull menu.")
+    register_clcmd("say /bull_vote",        "cmdVote", ADMIN_ACCESS_VOTE, "-- Opens the player voting menu.")
+    register_clcmd("say_team /bull_vote",   "cmdVote", ADMIN_ACCESS_VOTE, "-- Opens the player voting menu.")
     register_concmd("brazenbull_reload",    "cmdReload", ADMIN_ACCESS, "-- Reloads the configuration file")
     register_dictionary("BrazenBull.txt")
 
@@ -411,7 +430,8 @@ public cmdMenu(id, iLevel, iCmd)
 
     new eBull[BULL], bool:bFoundBull
     new iArgIndex = 2
-    new bool:bProcessed[33]
+    new bool:bProcessed[33], Float:fCurrentTime
+    fCurrentTime = get_gametime()
     while ( szTarget[0] )
     {
         if ( equali(szTarget, "all") )
@@ -430,7 +450,8 @@ public cmdMenu(id, iLevel, iCmd)
                 for ( new iItem = 0; iItem < g_iBull; iItem ++ )
                 {
                     ArrayGetArray(g_aBull, iItem, eBull)
-                    if ( eBull[BULL_FLAGS] & FLAG_USED )
+                    if ( eBull[BULL_FLAGS] & FLAG_USED
+                    || fCurrentTime < eBull[BULL_NEXT_ACTIVE] )
                         continue
 
                     bullBull(eBull, iTarget, true)
@@ -462,7 +483,8 @@ public cmdMenu(id, iLevel, iCmd)
                     for ( new iItem = 0; iItem < g_iBull; iItem ++ )
                     {
                         ArrayGetArray(g_aBull, iItem, eBull)
-                        if ( eBull[BULL_FLAGS] & FLAG_USED )
+                        if ( eBull[BULL_FLAGS] & FLAG_USED
+                        || fCurrentTime < eBull[BULL_NEXT_ACTIVE] )
                             continue
 
                         bullBull(eBull, iTarget, true)
@@ -486,6 +508,40 @@ public cmdMenu(id, iLevel, iCmd)
         remove_quotes(szTarget)
     }
 
+    return PLUGIN_HANDLED
+}
+
+public cmdVote(id, iLevel, iCmd)
+{
+    if ( !cmd_access(id, iLevel, iCmd, 1) )
+        return PLUGIN_HANDLED
+
+    if ( !g_eSettings[SETTING_VOTE_ENABLED] )
+    {
+        client_print_color(id, id, "%L %L", id, "BULL_CHAT_TAG", id, "BULL_CHAT_VOTE_DISABLED")
+        return PLUGIN_HANDLED
+    }
+
+    if ( task_exists(BULL_VOTE_KEY)
+    || get_gametime() < g_fVoteNext )
+    {
+        client_print_color(id, id, "%L %L", id, "BULL_CHAT_TAG", id, "BULL_CHAT_VOTE_COOLDOWN")
+        return PLUGIN_HANDLED
+    }
+
+    new iAlive
+    for ( new iPlayer = 1; iPlayer <= g_iMaxPlayers; iPlayer ++ )
+        if ( is_user_alive(iPlayer) )
+            iAlive ++
+
+    if ( !iAlive )
+    {
+        client_print_color(id, id, "%L %L", id, "BULL_CHAT_TAG", id, "BULL_CHAT_NO_VOTE_TARGETS")
+        return PLUGIN_HANDLED
+    }
+
+    bullSound(id, SOUND_MENU_NAV)
+    bullMenu(id, MENU_VOTE)
     return PLUGIN_HANDLED
 }
 
@@ -557,7 +613,6 @@ ReadFile()
                             ArrayPushArray(g_aBullConfig, eBull)
 
                         copy(eBull[BULL_NAME], charsmax(eBull[BULL_NAME]), szData)
-                        copy(eBull[BULL_SPRITE_FIRE], charsmax(eBull[BULL_SPRITE_FIRE]), g_eSettings[SETTING_DEFAULT_SPRITE_FIRE])
                         xs_vec_copy(g_eSettings[SETTING_DEFAULT_FIRE_COLOR], eBull[BULL_FIRE_COLOR])
                         eBull[BULL_FLAGS]                       = g_eSettings[SETTING_DEFAULT_FLAGS]
                         eBull[BULL_TEAM]                        = g_eSettings[SETTING_DEFAULT_TEAM]
@@ -645,6 +700,12 @@ ReadFile()
                             parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_DAMAGETYPE], charsmax(g_eSettings[SETTING_DEFAULT_DAMAGETYPE]))
                         else if ( equali(szKey, "SETTING_DEFAULT_SCREAM_INTERVAL") )
                             parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_SCREAM_INTERVAL], charsmax(g_eSettings[SETTING_DEFAULT_SCREAM_INTERVAL]))
+                        else if ( equali(szKey, "SETTING_DEFAULT_LIGHT_SCALE") )
+                            parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_LIGHT_SCALE], charsmax(g_eSettings[SETTING_DEFAULT_LIGHT_SCALE]))
+                        else if ( equali(szKey, "SETTING_DEFAULT_LIGHT_COLOR") )
+                            parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_LIGHT_COLOR], charsmax(g_eSettings[SETTING_DEFAULT_LIGHT_COLOR]))
+                        else if ( equali(szKey, "SETTING_DEFAULT_LIGHT_LIFE") )
+                            parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_LIGHT_LIFE], charsmax(g_eSettings[SETTING_DEFAULT_LIGHT_LIFE]))
                         else if ( equali(szKey, "SETTING_PLAY_SOUND_ON_DEATH") )
                             parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_PLAY_SOUND_ON_DEATH], charsmax(g_eSettings[SETTING_PLAY_SOUND_ON_DEATH]))
                         else if ( equali(szKey, "SETTING_WRITE_MESSAGE_ON_DEATH") )
@@ -653,6 +714,14 @@ ReadFile()
                             parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_KILL_ALL_EXCLUDE_CALLER], charsmax(g_eSettings[SETTING_KILL_ALL_EXCLUDE_CALLER]))
                         else if ( equali(szKey, "SETTING_SET_CAMERA_ON_VICTIM") )
                             parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_SET_CAMERA_ON_VICTIM], charsmax(g_eSettings[SETTING_SET_CAMERA_ON_VICTIM]))
+                        else if ( equali(szKey, "SETTING_VOTE_ENABLED") )
+                            parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_VOTE_ENABLED], charsmax(g_eSettings[SETTING_VOTE_ENABLED]))
+                        else if ( equali(szKey, "SETTING_VOTE_COOLDOWN") )
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_VOTE_COOLDOWN], charsmax(g_eSettings[SETTING_VOTE_COOLDOWN]))
+                        else if ( equali(szKey, "SETTING_VOTE_DURATION") )
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_VOTE_DURATION], charsmax(g_eSettings[SETTING_VOTE_DURATION]))
+                        else if ( equali(szKey, "SETTING_VOTE_PERCENTAGE") )
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_VOTE_PERCENTAGE], charsmax(g_eSettings[SETTING_VOTE_PERCENTAGE]))
                         else if ( equali(szKey, "SETTING_HUD_X") )
                             parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_HUD_X], charsmax(g_eSettings[SETTING_HUD_X]))
                         else if ( equali(szKey, "SETTING_HUD_Y") )
@@ -680,9 +749,7 @@ ReadFile()
                     }
                     case SECTION_BULL:
                     {
-                        if ( equali(szKey, "BULL_SPRITE_FIRE") )
-                            parseSetting(DTYPE_STRING_MODEL, szValue, charsmax(szValue), eBull[BULL_SPRITE_FIRE], charsmax(eBull[BULL_SPRITE_FIRE]))
-                        else if ( equali(szKey, "BULL_FLAGS") )
+                        if ( equali(szKey, "BULL_FLAGS") )
                             parseSetting(DTYPE_FLAGS, szValue, charsmax(szValue), eBull[BULL_FLAGS], charsmax(eBull[BULL_FLAGS]))
                         else if ( equali(szKey, "BULL_TEAM") )
                             parseSetting(DTYPE_INT, szValue, charsmax(szValue), eBull[BULL_TEAM], charsmax(eBull[BULL_TEAM]))
@@ -758,6 +825,8 @@ stock bullMenu(id, iType)
         case MENU_SHOW:             { menuShow(id, iMenu);          format(szData, charsmax(szData), "%s^n%L", szData, id, "BULL_ROOT_SHOW"); }
         case MENU_STATUS:           { menuStatus(id, iMenu);        format(szData, charsmax(szData), "%s^n%L", szData, id, "BULL_ROOT_STATUS"); }
         case MENU_ROTATE:           { menuRotate(id, iMenu);        format(szData, charsmax(szData), "%s^n%L", szData, id, "BULL_ROOT_ROTATE"); }
+        case MENU_VOTE:             { menuVote(id, iMenu);          format(szData, charsmax(szData), "%s^n%L", szData, id, "BULL_ROOT_VOTE"); }
+        case MENU_VOTE_CONFIRM:     { menuVoteConfirm(id, iMenu);   format(szData, charsmax(szData), "%s^n%L", szData, id, "BULL_ROOT_VOTE_CONFIRM", g_szVoteTarget); }
     }
 
     if ( menu_pages(iMenu) > 1 )
@@ -1402,6 +1471,123 @@ public menuHandlerRotate(id, menu, item)
     return PLUGIN_HANDLED
 }
 
+public menuVote(id, iMenu)
+{
+    new szName[MAX_NAME_LENGTH], szInfo[8]
+    for ( new iPlayer = 1; iPlayer <= g_iMaxPlayers; iPlayer ++ )
+    {
+        if ( !is_user_alive(iPlayer) )
+            continue
+
+        get_user_name(iPlayer, szName, charsmax(szName))
+        num_to_str(get_user_userid(iPlayer), szInfo, charsmax(szInfo))
+        menu_additem(iMenu, szName, szInfo)
+    }
+
+    return PLUGIN_HANDLED
+}
+
+public menuHandlerVote(id, menu, item)
+{
+    if ( item == MENU_EXIT )
+    {
+        menu_destroy(menu)
+        return PLUGIN_HANDLED
+    }
+
+    new szInfo[8]
+    menu_item_getinfo(menu, item, _, szInfo, charsmax(szInfo))
+
+    new iUserid = str_to_num(szInfo)
+    new iPlayer = find_player("k", iUserid)
+    if ( !iPlayer || !is_user_alive(iPlayer) )
+    {
+        client_print_color(id, id, "%L %L", id, "BULL_CHAT_TAG", id, "BULL_CHAT_NO_VOTE_TARGETS")
+        return PLUGIN_HANDLED
+    }
+
+    g_iVoteNo = 0
+    g_iVoteYes = 0
+    g_iVoteTargetUserid = iUserid
+    get_user_name(iPlayer, g_szVoteTarget, charsmax(g_szVoteTarget))
+    set_task(g_eSettings[SETTING_VOTE_DURATION], "taskVoteEnd", BULL_VOTE_KEY)
+    for ( new iPlayer = 1; iPlayer <= g_iMaxPlayers; iPlayer ++ )
+    {
+        if ( !is_user_connected(iPlayer) )
+            continue
+
+        bullSound(iPlayer, SOUND_MENU_NAV)
+        bullMenu(iPlayer, MENU_VOTE_CONFIRM)
+    }
+
+    menu_destroy(menu)
+    return PLUGIN_HANDLED
+}
+
+public menuVoteConfirm(id, menu)
+{
+    new szItem[128]
+    formatex(szItem, charsmax(szItem), "%L", id, "BULL_VOTE_YES")
+    menu_additem(menu, szItem)
+
+    formatex(szItem, charsmax(szItem), "%L", id, "BULL_VOTE_NO")
+    menu_additem(menu, szItem)
+}
+
+public menuHandlerVoteConfirm(id, menu, item)
+{
+    if ( item == MENU_EXIT )
+    {
+        menu_destroy(menu)
+        return PLUGIN_HANDLED
+    }
+
+    if ( item == 0 )    g_iVoteYes ++
+    else                g_iVoteNo ++
+
+    menu_destroy(menu)
+    return PLUGIN_HANDLED
+}
+
+public taskVoteEnd()
+{
+    new iTotal = g_iVoteYes + g_iVoteNo
+    new Float:fPercentage
+
+    if ( iTotal )
+        fPercentage = float(g_iVoteYes) / float(iTotal)
+
+    new iTarget = find_player("k", g_iVoteTargetUserid)
+    if ( iTotal && fPercentage >= g_eSettings[SETTING_VOTE_PERCENTAGE]
+    && iTarget && is_user_alive(iTarget) )
+    {
+        new eBull[BULL], bool:bFoundBull
+        for ( new iItem = 0; iItem < g_iBull; iItem ++ )
+        {
+            ArrayGetArray(g_aBull, iItem, eBull)
+
+            if ( eBull[BULL_FLAGS] & FLAG_USED )
+                continue
+
+            bullBull(eBull, iTarget, true)
+            ArraySetArray(g_aBull, iItem, eBull)
+            bFoundBull = true
+            break
+        }
+
+        if ( !bFoundBull )
+            client_print_color(0, print_team_default, "%L %L", 0, "BULL_CHAT_TAG", 0, "BULL_CHAT_NO_BULL")
+        else
+            client_print_color(0, print_team_default, "%L %L", 0, "BULL_CHAT_TAG", 0, "BULL_CHAT_VOTE_PASSED", g_szVoteTarget)
+    }
+    else
+    {
+        client_print_color(0, print_team_default, "%L %L", 0, "BULL_CHAT_TAG", 0, "BULL_CHAT_VOTE_FAILED", g_szVoteTarget)
+    }
+
+    g_fVoteNext = get_gametime() + g_eSettings[SETTING_VOTE_COOLDOWN]
+}
+
 public bullTask()
 {
     new eBull[BULL], iItem, Float:fCurrentTime
@@ -1413,7 +1599,8 @@ public bullTask()
         {
             if ( fCurrentTime >= g_ePlayerData[id][PDATA_NEXT_BULL] )
             {
-                if ( (iItem = bullGet(eBull, g_ePlayerData[id][PDATA_BULL_ID])) != -1 )
+                if ( (iItem = bullGet(eBull, g_ePlayerData[id][PDATA_BULL_ID])) != -1
+                && !(eBull[BULL_FLAGS] & FLAG_USED) )
                 {
                     g_ePlayerData[id][PDATA_BULL_ID] = 0
                     g_ePlayerData[id][PDATA_NEXT_BULL] = 0.0
@@ -1450,6 +1637,7 @@ public bullTask()
                         set_task(random_float(eBull[BULL_DAMAGE_INTERVAL][0], eBull[BULL_DAMAGE_INTERVAL][1]), "bullDamage", id + BULL_LOCKED_KEY)
                     }
 
+                    eBull[BULL_FLAGS] |= FLAG_CLOSED
                     g_ePlayerData[id][PDATA_NEXT_CLOSE] = 0.0
                     bullSetSeq(eBull[BULL_ID], BULL_SEQ_CLOSED, eBull[BULL_FRAMERATE])
                     bullSound(eBull[BULL_ID], SOUND_CLOSE, false)
@@ -1476,12 +1664,14 @@ public bullTask()
         else if ( eBull[BULL_NEXT_OPEN]
         && fCurrentTime >= eBull[BULL_NEXT_OPEN] )
         {
-            eBull[BULL_FLAGS] &= ~FLAG_USED
             bullSetSeq(eBull[BULL_ID], BULL_SEQ_OPENED, eBull[BULL_FRAMERATE])
             eBull[BULL_NEXT_OPEN] = 0.0
 
             ArraySetArray(g_aBull, i, eBull)
         }
+
+        if ( eBull[BULL_FLAGS] & FLAG_CLOSED )
+            bullLight(eBull[BULL_ORIGIN_FIRE])
     }
 }
 
@@ -1524,6 +1714,7 @@ stock bullCreate(id, iItem)
 stock bullCreateView(eBull[BULL])
 {
     new Float:fOrigin[3], Float:fAngles[3], Float:fRight[3], Float:fForward[3], Float:fDirection[3], Float:fFrac
+    eBull[BULL_ANGLES][0] = -eBull[BULL_ANGLES][0]
     engfunc(EngFunc_AngleVectors, eBull[BULL_ANGLES], fForward, fRight, NULL_VECTOR)
 
     xs_vec_copy(eBull[BULL_ORIGIN], fOrigin)
@@ -1566,17 +1757,17 @@ stock bullCreateFire(eBull[BULL])
     if ( !pev_valid(iEnt) )
         return
 
-    new Float:fOrigin[3], szCN[32]
+    new szCN[32]
     formatex(szCN, charsmax(szCN), "%s_fire", g_szCN)
-    engfunc(EngFunc_GetAttachment, eBull[BULL_ID], 0, fOrigin, NULL_VECTOR)
-    xs_vec_add(fOrigin, g_fFireOffset, fOrigin)
+    engfunc(EngFunc_GetAttachment, eBull[BULL_ID], 0, eBull[BULL_ORIGIN_FIRE], NULL_VECTOR)
+    xs_vec_add(eBull[BULL_ORIGIN_FIRE], g_fFireOffset, eBull[BULL_ORIGIN_FIRE])
     set_pev(iEnt, pev_classname, szCN)
     set_pev(iEnt, pev_framerate, eBull[BULL_FIRE_FRAMERATE])
     set_pev(iEnt, pev_spawnflags, SF_SPRITE_STARTON)
-    engfunc(EngFunc_SetModel, iEnt, eBull[BULL_SPRITE_FIRE])
+    engfunc(EngFunc_SetModel, iEnt, g_eSettings[SETTING_DEFAULT_SPRITE_FIRE])
     dllfunc(DLLFunc_Spawn, iEnt)
 
-    engfunc(EngFunc_SetOrigin, iEnt, fOrigin)
+    engfunc(EngFunc_SetOrigin, iEnt, eBull[BULL_ORIGIN_FIRE])
     set_pev(iEnt, pev_solid, SOLID_NOT)
     set_pev(iEnt, pev_movetype, MOVETYPE_NONE)
     set_pev(iEnt, pev_scale, eBull[BULL_FIRE_SCALE])
@@ -2120,8 +2311,8 @@ stock bullBull(eBull[BULL], id, bool:bForced = false)
     bullOffset(eBull, id)
     bullSetSeq(eBull[BULL_ID], BULL_SEQ_CLOSE, eBull[BULL_FRAMERATE])
     bullSound(eBull[BULL_ID], SOUND_OPEN, false)
-    eBull[BULL_FLAGS] |= FLAG_USED
     eBull[BULL_NEXT_OPEN] = 0.0
+    eBull[BULL_FLAGS] |= FLAG_USED
     g_ePlayerData[id][PDATA_BULL_ID] = eBull[BULL_ID]
     g_ePlayerData[id][PDATA_NEXT_CLOSE] = get_gametime() + (BULL_DURATION_CLOSE / eBull[BULL_FRAMERATE])
     g_ePlayerData[id][PDATA_BULL_HELD] = true
@@ -2154,7 +2345,7 @@ public bullDamage(iTask)
         new eBull[BULL], iItem
         if ( (iItem = bullGet(eBull, g_ePlayerData[id][PDATA_BULL_ID])) != -1 )
         {
-            eBull[BULL_FLAGS] &= ~FLAG_USED
+            eBull[BULL_FLAGS] &= ~(FLAG_USED | FLAG_CLOSED)
             eBull[BULL_NEXT_ACTIVE] = get_gametime() + random_float(eBull[BULL_COOLDOWN][0], eBull[BULL_COOLDOWN][1])
             set_pev(eBull[BULL_FIRE], pev_renderamt, 0.0)
             ArraySetArray(g_aBull, iItem, eBull)
@@ -2247,6 +2438,35 @@ stock bullMessage(id, bool:bForced = false)
     }
 }
 
+stock bullFire(Float:fOrigin[3])
+{
+    message_begin_f(MSG_PVS, SVC_TEMPENTITY, fOrigin)
+    write_byte(TE_SPRITE)
+    write_coord_f(fOrigin[0])
+    write_coord_f(fOrigin[1])
+    write_coord_f(fOrigin[2])
+    write_short(g_eSettings[SETTING_DEFAULT_SPRITE_FIRE])
+    write_byte(floatround(g_eSettings[SETTING_DEFAULT_FIRE_SCALE] * 10.0))
+    write_byte(floatround(g_eSettings[SETTING_DEFAULT_FIRE_ALPHA]))
+    message_end()
+}
+
+stock bullLight(Float:fOrigin[3])
+{
+    message_begin_f(MSG_PVS, SVC_TEMPENTITY, fOrigin)
+    write_byte(TE_DLIGHT)
+    write_coord_f(fOrigin[0])
+    write_coord_f(fOrigin[1])
+    write_coord_f(fOrigin[2])
+    write_byte(g_eSettings[SETTING_DEFAULT_LIGHT_SCALE])
+    write_byte(g_eSettings[SETTING_DEFAULT_LIGHT_COLOR][0])
+    write_byte(g_eSettings[SETTING_DEFAULT_LIGHT_COLOR][1])
+    write_byte(g_eSettings[SETTING_DEFAULT_LIGHT_COLOR][2])
+    write_byte(g_eSettings[SETTING_DEFAULT_LIGHT_LIFE])
+    write_byte(0)
+    message_end()
+}
+
 stock bullSound(iEnt, iSound, bool:bPlayer = true, iChannel = CHAN_ITEM)
 {
     new szSample[64]
@@ -2273,7 +2493,7 @@ stock bullReset()
     for ( new i = 0; i < g_iBull; i ++ )
     {
         ArrayGetArray(g_aBull, i, eBull)
-        eBull[BULL_FLAGS] &= ~FLAG_USED
+        eBull[BULL_FLAGS] &= ~(FLAG_USED | FLAG_CLOSED)
         ArraySetArray(g_aBull, i, eBull)
     }
 
