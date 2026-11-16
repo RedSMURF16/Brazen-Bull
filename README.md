@@ -21,6 +21,10 @@ This plugin adds placeable Brazen Bulls to Counter-Strike 1.6, allowing players 
 - Save and load Brazen Bull placements per map
 - Configure default behavior and create custom Brazen Bull presets
 
+## 📋 Requirements
+- ReGameDLL
+- AMX Mod X 1.10+
+
 ## ⚙️ Configuration
 ```ini
 # To add a new Brazen Bull, follow the example below:
