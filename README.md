@@ -36,3 +36,5 @@ This plugin adds placeable Brazen Bulls to Counter-Strike 1.6, allowing players 
 ```text
 * v1.0: Initial release.
 ```
+
+[![Watch on YouTube](https://img.shields.io/badge/YouTube-Watch%20video-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=A9aFRl1gYjI)
