@@ -1763,6 +1763,7 @@ stock bullCreateFire(eBull[BULL])
     engfunc(EngFunc_GetAttachment, eBull[BULL_ID], 0, eBull[BULL_ORIGIN_FIRE], NULL_VECTOR)
     xs_vec_add(eBull[BULL_ORIGIN_FIRE], g_fFireOffset, eBull[BULL_ORIGIN_FIRE])
     set_pev(iEnt, pev_classname, szCN)
+    set_pev(iEnt, pev_framerate, eBull[BULL_FIRE_FRAMERATE])
     set_pev(iEnt, pev_spawnflags, SF_SPRITE_STARTON)
     engfunc(EngFunc_SetModel, iEnt, g_eSettings[SETTING_DEFAULT_SPRITE_FIRE])
     dllfunc(DLLFunc_Spawn, iEnt)
@@ -1776,6 +1777,7 @@ stock bullCreateFire(eBull[BULL])
     set_pev(iEnt, pev_rendercolor, eBull[BULL_FIRE_COLOR])
     set_pev(iEnt, pev_renderfx, kRenderFxNone)
     set_pev(iEnt, pev_renderamt, 0.0)
+    set_pev(iEnt, pev_framerate, 0.0)
     eBull[BULL_FIRE] = iEnt
 }
 
