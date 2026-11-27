@@ -1,7 +1,7 @@
 <h1 align="center">Brazen Bull</h1>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=A9aFRl1gYjI"><img src="https://img.youtube.com/vi/A9aFRl1gYjI/maxresdefault.jpg" alt="Watch on YouTube" width="600"></a>
+  <img src="images/demo.gif" alt="Brazen Bull">
 </p>
 
 ## 📝 Description
