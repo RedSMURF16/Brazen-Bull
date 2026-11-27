@@ -1631,6 +1631,7 @@ public bullTask()
                         g_ePlayerData[id][PDATA_BULL_DAMAGE_INTERVAL][1] = eBull[BULL_DAMAGE_INTERVAL][1]
                         g_ePlayerData[id][PDATA_BULL_DAMAGETYPE] = eBull[BULL_DAMAGETYPE]
                         set_pev(id, pev_effects, pev(id, pev_effects) | EF_NODRAW)
+                        set_pev(eBull[BULL_FIRE], pev_framerate, eBull[BULL_FIRE_FRAMERATE])
                         set_pev(eBull[BULL_FIRE], pev_renderamt, eBull[BULL_FIRE_ALPHA])
                         bullSound(eBull[BULL_ID], SOUND_FIRE, false, CHAN_VOICE)
 
@@ -1762,7 +1763,6 @@ stock bullCreateFire(eBull[BULL])
     engfunc(EngFunc_GetAttachment, eBull[BULL_ID], 0, eBull[BULL_ORIGIN_FIRE], NULL_VECTOR)
     xs_vec_add(eBull[BULL_ORIGIN_FIRE], g_fFireOffset, eBull[BULL_ORIGIN_FIRE])
     set_pev(iEnt, pev_classname, szCN)
-    set_pev(iEnt, pev_framerate, eBull[BULL_FIRE_FRAMERATE])
     set_pev(iEnt, pev_spawnflags, SF_SPRITE_STARTON)
     engfunc(EngFunc_SetModel, iEnt, g_eSettings[SETTING_DEFAULT_SPRITE_FIRE])
     dllfunc(DLLFunc_Spawn, iEnt)
@@ -2347,6 +2347,7 @@ public bullDamage(iTask)
         {
             eBull[BULL_FLAGS] &= ~(FLAG_USED | FLAG_CLOSED)
             eBull[BULL_NEXT_ACTIVE] = get_gametime() + random_float(eBull[BULL_COOLDOWN][0], eBull[BULL_COOLDOWN][1])
+            set_pev(eBull[BULL_FIRE], pev_framerate, 0.0)
             set_pev(eBull[BULL_FIRE], pev_renderamt, 0.0)
             ArraySetArray(g_aBull, iItem, eBull)
         }
