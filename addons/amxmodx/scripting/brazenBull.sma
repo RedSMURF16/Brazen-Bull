@@ -1758,10 +1758,18 @@ stock bullCreateFire(eBull[BULL])
     if ( !pev_valid(iEnt) )
         return
 
+    new Float:fAngles[3], Float:fForward[3], Float:fRight[3], Float:fUp[3]
+    xs_vec_copy(eBull[BULL_ANGLES], fAngles)
+    fAngles[0] = -fAngles[0]
+    engfunc(EngFunc_AngleVectors, fAngles, fForward, fRight, fUp)
+
     new szCN[32]
     formatex(szCN, charsmax(szCN), "%s_fire", g_szCN)
     engfunc(EngFunc_GetAttachment, eBull[BULL_ID], 0, eBull[BULL_ORIGIN_FIRE], NULL_VECTOR)
-    xs_vec_add(eBull[BULL_ORIGIN_FIRE], g_fFireOffset, eBull[BULL_ORIGIN_FIRE])
+    xs_vec_add_scaled(eBull[BULL_ORIGIN_FIRE], fForward, g_fFireOffset[0], eBull[BULL_ORIGIN_FIRE])
+    xs_vec_add_scaled(eBull[BULL_ORIGIN_FIRE], fRight,   g_fFireOffset[1], eBull[BULL_ORIGIN_FIRE])
+    xs_vec_add_scaled(eBull[BULL_ORIGIN_FIRE], fUp,      g_fFireOffset[2], eBull[BULL_ORIGIN_FIRE])
+
     set_pev(iEnt, pev_classname, szCN)
     set_pev(iEnt, pev_framerate, eBull[BULL_FIRE_FRAMERATE])
     set_pev(iEnt, pev_spawnflags, SF_SPRITE_STARTON)
